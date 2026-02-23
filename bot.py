@@ -3,54 +3,60 @@ import asyncio
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import Command
 from yt_dlp import YoutubeDL
+from aiohttp import web
 
+# Bot token
 API_TOKEN = '8362871398:AAERtQR_OVJjGddYxHiRIy6-BcUs6t-MEeA'
-
 bot = Bot(token=API_TOKEN)
 dp = Dispatcher()
 
+# Render kutayotgan "Port"ni ochish uchun kichik server
+async def handle(request):
+    return web.Response(text="Bot is live!")
+
+app = web.Application()
+app.router.add_get("/", handle)
+
 @dp.message(Command("start"))
-async def start_cmd(message: types.Message):
-    await message.answer("Salom! Video linkini yuboring. (YouTube, TikTok, Instagram) 📥")
+async def start(message: types.Message):
+    await message.answer("Salom! Video linkini yuboring, yuklab beraman! 📥")
 
 @dp.message(F.text.startswith("http"))
-async def download_video(message: types.Message):
+async def download(message: types.Message):
     url = message.text
-    user_id = message.from_user.id
-    status = await message.answer("Video yuklanmoqda... ⏳")
-    
-    file_path = f"v_{user_id}.mp4"
-    
-    ydl_opts = {
-        'format': 'best[ext=mp4]/best', # Faqat MP4 formatini so'raymiz
-        'outtmpl': file_path,
-        'noplaylist': True,
-        'quiet': True,
-        'no_warnings': True,
-        'geo_bypass': True, # Bloklarni chetlab o'tishga urinish
-    }
-    
+    msg = await message.answer("Yuklanmoqda... ⏳")
+    path = f"v_{message.from_user.id}.mp4"
     try:
+        # Eng yangi sozlamalar bilan yuklash
+        ydl_opts = {
+            'format': 'best',
+            'outtmpl': path,
+            'quiet': True,
+            'no_warnings': True
+        }
         with YoutubeDL(ydl_opts) as ydl:
             ydl.download([url])
         
-        if os.path.exists(file_path):
-            video_file = types.FSInputFile(file_path)
-            await message.answer_video(video_file, caption="Tayyor! ✅")
-            os.remove(file_path)
-        else:
-            await message.answer("Fayl yuklandi, lekin topilmadi. ❌")
-            
+        await message.answer_video(types.FSInputFile(path), caption="Tayyor! ✅")
+        os.remove(path)
     except Exception as e:
-        await message.answer("Kechirasiz, server videoni yuklay olmadi. Platforma botni bloklagan bo'lishi mumkin. ❌")
-    
-    await status.delete()
+        await message.answer(f"Xatolik: Yuklab bo'lmadi. ❌")
+    await msg.delete()
 
 async def main():
+    # Render'da port xatosini oldini olish
+    runner = web.AppRunner(app)
+    await runner.setup()
+    port = int(os.getenv('PORT', 10000))
+    site = web.TCPSite(runner, '0.0.0.0', port)
+    await site.start()
+    
+    # Botni ishga tushirish
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
     asyncio.run(main())
+
 
 
 
