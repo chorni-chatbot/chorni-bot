@@ -4,56 +4,59 @@ from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import Command
 from yt_dlp import YoutubeDL
 
+# Bot tokeningiz
 API_TOKEN = '8362871398:AAERtQR_OVJjGddYxHiRIy6-BcUs6t-MEeA'
+
 bot = Bot(token=API_TOKEN)
 dp = Dispatcher()
 
 @dp.message(Command("start"))
-async def start(message: types.Message):
-    await message.answer("Salom! Link yuboring, videoni va musiqasini yuklab beraman! 🎵🎥")
+async def start_cmd(message: types.Message):
+    await message.answer(
+        "Salom! Men video yuklovchi botman. 📥\n\n"
+        "Menga Instagram, TikTok yoki YouTube linkini yuboring, "
+        "men uni sizga video formatida yuklab beraman!"
+    )
 
-@dp.message(F.text)
-async def handle_all(message: types.Message):
+@dp.message(F.text.startswith("http"))
+async def download_video(message: types.Message):
     url = message.text
-    if not url.startswith("http"):
-        # Musiqa qidirish (YouTube orqali)
-        msg = await message.answer("Musiqa qidirilmoqda... 🔍")
-        opts = {'format': 'bestaudio/best', 'outtmpl': 'm.mp3', 'default_search': 'ytsearch1', 'noplaylist': True}
-        try:
-            with YoutubeDL(opts) as ydl:
-                ydl.download([url])
-            await message.answer_audio(types.FSInputFile('m.mp3'))
-            os.remove('m.mp3')
-        except:
-            await message.answer("Musiqa topilmadi.")
-        await msg.delete()
-        return
-
-    # Video yuklash (Instagram/TikTok/YT)
-    msg = await message.answer("Yuklanmoqda... 📥")
-    v_opts = {'format': 'best', 'outtmpl': 'v.mp4'}
-    a_opts = {'format': 'bestaudio/best', 'outtmpl': 'a.mp3', 'postprocessors': [{'key': 'FFmpegExtractAudio','preferredcodec': 'mp3'}]}
+    user_id = message.from_user.id
+    status = await message.answer("Video yuklanmoqda, iltimos kuting... ⏳")
+    
+    # Video yuklash sozlamalari
+    file_path = f"video_{user_id}.mp4"
+    ydl_opts = {
+        'format': 'best',
+        'outtmpl': file_path,
+        'noplaylist': True,
+        'quiet': True
+    }
     
     try:
-        with YoutubeDL(v_opts) as ydl:
+        # Videoni serverga yuklash
+        with YoutubeDL(ydl_opts) as ydl:
             ydl.download([url])
-        await message.answer_video(types.FSInputFile('v.mp4'), caption="Video tayyor! ✅")
-        os.remove('v.mp4')
         
-        # Avtomatik musiqasini ham yuboramiz
-        with YoutubeDL(a_opts) as ydl:
-            ydl.download([url])
-        await message.answer_audio(types.FSInputFile('a.mp3'), caption="Musiqasi! 🎵")
-        os.remove('a.mp3')
+        # Videoni Telegramga yuborish
+        video_file = types.FSInputFile(file_path)
+        await message.answer_video(video_file, caption="Tayyor! ✅\n@chornichatuzbot orqali yuklandi.")
+        
+        # Serverdan faylni o'chirish (joy egallamasligi uchun)
+        if os.path.exists(file_path):
+            os.remove(file_path)
+            
     except Exception as e:
-        await message.answer(f"Xatolik yuz berdi. Linkni tekshiring.")
-    await msg.delete()
+        await message.answer("Kechirasiz, videoni yuklashda xatolik yuz berdi. Linkni tekshiring yoki keyinroq urinib ko'ring. ❌")
+    
+    await status.delete()
 
 async def main():
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
     asyncio.run(main())
+
 
 
 
