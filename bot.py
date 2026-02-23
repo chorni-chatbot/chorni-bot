@@ -2,87 +2,98 @@ import os
 import asyncio
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import Command
+from aiogram.utils.keyboard import InlineKeyboardBuilder
 from yt_dlp import YoutubeDL
 
-# BotFather'dan olgan tokeningiz
+# Bot tokeningiz
 API_TOKEN = '8362871398:AAERtQR_OVJjGddYxHiRIy6-BcUs6t-MEeA'
 
 bot = Bot(token=API_TOKEN)
 dp = Dispatcher()
 
-# Menyu tugmalari
-def main_menu():
-    kb = [
-        [types.KeyboardButton(text="Musiqa qidirish 🔍")],
-        [types.KeyboardButton(text="Linkdan yuklash 📥"), types.KeyboardButton(text="Yordam ❓")]
-    ]
-    return types.ReplyKeyboardMarkup(keyboard=kb, resize_keyboard=True)
+# Video tagidagi tugma funksiyasi
+def get_audio_kb(url):
+    builder = InlineKeyboardBuilder()
+    # Callback_data cheklovi sababli urlni qisqartiramiz yoki saqlaymiz
+    builder.row(types.InlineKeyboardButton(
+        text="🎵 Qo'shiqni yuklab olish", 
+        callback_data=f"mp3_download") 
+    )
+    return builder.as_markup()
+
+# Global lug'at - vaqtincha linklarni saqlash uchun
+user_links = {}
 
 @dp.message(Command("start"))
 async def start_cmd(message: types.Message):
-    await message.answer(
-        "Salom! Men aqlli botman. Instagram linkini tashlasangiz, videoni ham, undagi musiqani ham topib beraman!",
-        reply_markup=main_menu()
-    )
+    await message.answer("Salom! Menga Instagram yoki TikTok linkini yuboring. Men videoni va undagi musiqani topib beraman! ✨")
 
-@dp.message()
-async def handle_everything(message: types.Message):
-    if not message.text: return
+@dp.message(F.text.contains("http"))
+async def handle_video(message: types.Message):
     url = message.text
+    user_links[message.from_user.id] = url # Linkni eslab qolamiz
     
-    # Agar bu link bo'lsa
-    if "instagram.com" in url or "tiktok.com" in url or "youtube.com" in url or "youtu.be" in url:
-        msg = await message.answer("Video va musiqa ajratib olinmoqda, kuting...")
+    msg = await message.answer("Video tayyorlanmoqda... 📥")
+    
+    v_opts = {
+        'format': 'best',
+        'outtmpl': f'v_{message.from_user.id}.mp4',
+        'noplaylist': True,
+    }
+    
+    try:
+        with YoutubeDL(v_opts) as ydl:
+            ydl.download([url])
         
-        # 1. Videoni yuklash sozlamasi
-        v_opts = {'format': 'best', 'outtmpl': 'video.mp4'}
-        # 2. Musiqani ajratib olish sozlamasi
-        a_opts = {
-            'format': 'bestaudio/best',
-            'outtmpl': 'music.mp3',
-            'postprocessors': [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'mp3', 'preferredquality': '192'}],
-        }
+        video_file = types.FSInputFile(f'v_{message.from_user.id}.mp4')
+        await message.answer_video(
+            video_file, 
+            caption="Tayyor! ✅\n\n@chornichatuzbot orqali yuklab olindi",
+            reply_markup=get_audio_kb(url)
+        )
+        os.remove(f'v_{message.from_user.id}.mp4')
+        await msg.delete()
+    except Exception as e:
+        await message.answer("Xatolik: Link noto'g'ri yoki video yopiq profilda.")
+        await msg.delete()
 
-        try:
-            # Videoni yuklash va yuborish
-            with YoutubeDL(v_opts) as ydl:
-                ydl.download([url])
-            await message.answer_video(types.FSInputFile("video.mp4"), caption="Mana video! 🎥")
-            
-            # Musiqani ajratib olish va yuborish
-            with YoutubeDL(a_opts) as ydl:
-                ydl.download([url])
-            await message.answer_audio(types.FSInputFile("music.mp3"), caption="Mana videodagi musiqa! 🎵")
-            
-            # Fayllarni tozalash
-            if os.path.exists("video.mp4"): os.remove("video.mp4")
-            if os.path.exists("music.mp3"): os.remove("music.mp3")
-            
-        except Exception as e:
-            await message.answer("Xatolik: Linkni tekshiring yoki botni qayta ishga tushiring.")
-        await msg.delete()
+# Tugma bosilganda musiqani ajratib yuborish
+@dp.callback_query(F.data == "mp3_download")
+async def send_audio(callback: types.CallbackQuery):
+    url = user_links.get(callback.from_user.id)
     
-    # Agar shunchaki matn bo'lsa (Musiqa qidirish)
-    else:
-        msg = await message.answer("Musiqa qidirilmoqda...")
-        search_opts = {
-            'format': 'bestaudio/best',
-            'outtmpl': 'search_music.mp3',
-            'default_search': 'ytsearch1',
-            'noplaylist': True,
-        }
-        try:
-            with YoutubeDL(search_opts) as ydl:
-                ydl.download([url])
-            await message.answer_audio(types.FSInputFile("search_music.mp3"), caption=f"Topildi: {url} ✅")
-            os.remove("search_music.mp3")
-        except:
-            await message.answer("Hech narsa topilmadi 😔")
-        await msg.delete()
+    if not url:
+        return await callback.answer("Xatolik: Link topilmadi. Qaytadan link yuboring.", show_alert=True)
+    
+    await callback.answer("Musiqa ajratib olinmoqda... 🎧")
+    status_msg = await callback.message.answer("🎵 Musiqa yuklanmoqda...")
+
+    a_opts = {
+        'format': 'bestaudio/best',
+        'outtmpl': f'm_{callback.from_user.id}.mp3',
+        'postprocessors': [{
+            'key': 'FFmpegExtractAudio',
+            'preferredcodec': 'mp3',
+            'preferredquality': '192',
+        }],
+    }
+
+    try:
+        with YoutubeDL(a_opts) as ydl:
+            ydl.download([url])
+        
+        audio_file = types.FSInputFile(f'm_{callback.from_user.id}.mp3')
+        await callback.message.answer_audio(audio_file, caption="Mana videodagi musiqa! 🎶")
+        os.remove(f'm_{callback.from_user.id}.mp3')
+        await status_msg.delete()
+    except Exception as e:
+        await callback.message.answer("Musiqani yuklashda xatolik yuz berdi.")
+        await status_msg.delete()
 
 async def main():
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
     asyncio.run(main())
+
 
